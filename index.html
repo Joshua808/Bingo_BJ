@@ -2,112 +2,138 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bingo Blackjack EV Calculator</title>
+    <title>Bingo BJ Numerical EV Engine</title>
     <style>
-        body { font-family: sans-serif; max-width: 600px; margin: 20px auto; padding: 20px; line-height: 1.6; }
-        .input-group { margin-bottom: 15px; }
-        label { display: block; font-weight: bold; }
-        select, input { width: 100%; padding: 8px; margin-top: 5px; }
-        #results { margin-top: 20px; padding: 15px; border-radius: 8px; background: #f4f4f4; }
-        .optimal { color: green; font-weight: bold; }
+        body { font-family: sans-serif; max-width: 700px; margin: 20px auto; background: #1a1a1a; color: white; padding: 20px; }
+        .container { background: #2d2d2d; padding: 25px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .input-row { display: flex; gap: 10px; margin-bottom: 15px; }
+        .input-group { flex: 1; }
+        label { display: block; font-size: 0.8em; color: #aaa; margin-bottom: 5px; }
+        select, input { width: 100%; padding: 10px; border-radius: 5px; border: none; background: #444; color: white; }
+        button { width: 100%; padding: 15px; background: #70ad47; border: none; border-radius: 5px; color: white; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        #results { margin-top: 25px; border-top: 1px solid #444; padding-top: 20px; }
+        .ev-item { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #3d3d3d; }
+        .optimal { background: rgba(112, 173, 71, 0.2); border-left: 4px solid #70ad47; }
+        .val { font-family: monospace; font-size: 1.1em; }
+        .info { font-size: 0.8em; color: #888; margin-top: 10px; }
     </style>
 </head>
 <body>
-    <h2>Bingo Blackjack EV Calculator</h2>
-    <p><i>DraftKings Version Dis.A_1.1</i></p>
+    <div class="container">
+        <h2>Bingo Blackjack EV Engine</h2>
+        <p class="info">Rules: 8 Decks, S17, 20% Bingo Fee, Target Multiplier</p>
 
-    <div class="input-group">
-        <label>Bingo Multiplier:</label>
-        <select id="multiplier">
-            <option value="2">2x</option>
-            <option value="5">5x</option>
-            <option value="10">10x</option>
-            <option value="25">25x</option>
-            <option value="50">50x</option>
-            <option value="100">100x</option>
-        </select>
+        <div class="input-row">
+            <div class="input-group">
+                <label>Multiplier</label>
+                <select id="mult">
+                    <option value="2">2x</option><option value="5">5x</option><option value="10" selected>10x</option>
+                    <option value="25">25x</option><option value="50">50x</option><option value="100">100x</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label>Target Hand Value</label>
+                <input type="number" id="target" value="16" min="12" max="21">
+            </div>
+        </div>
+
+        <div class="input-row">
+            <div class="input-group"><label>Player Card 1</label><input type="number" id="c1" value="10"></div>
+            <div class="input-group"><label>Player Card 2</label><input type="number" id="c2" value="6"></div>
+            <div class="input-group"><label>Dealer Upcard</label><input type="number" id="dealer" value="10"></div>
+        </div>
+
+        <button onclick="runEV()">Calculate Numerical EV</button>
+
+        <div id="results"></div>
     </div>
 
-    <div class="input-group">
-        <label>Target Hand Value:</label>
-        <input type="number" id="target" value="21" min="12" max="21">
-    </div>
+<script>
+    const deck = [4,4,4,4,4,4,4,4,16,4]; // Approximate 8-deck weights (2-9, 10s, Aces)
+    
+    function runEV() {
+        const mult = parseFloat(document.getElementById('mult').value);
+        const target = parseInt(document.getElementById('target').value);
+        const pTotal = parseInt(document.getElementById('c1').value) + parseInt(document.getElementById('c2').value);
+        const dUp = parseInt(document.getElementById('dealer').value);
+        const fee = 0.20; // 20% Bingo Activator Fee
 
-    <div class="input-group">
-        <label>Player Card 1 (Value):</label>
-        <input type="number" id="p1" value="10" min="2" max="11">
-    </div>
+        // Dealer outcome probabilities based on upcard (Simplified S17 8-Deck model)
+        const dProbs = getDealerProbs(dUp);
 
-    <div class="input-group">
-        <label>Player Card 2 (Value):</label>
-        <input type="number" id="p2" value="6" min="2" max="11">
-    </div>
+        // STAND EV calculation
+        let standEV = calculateStandEV(pTotal, dProbs, mult, target);
+        standEV -= fee; // Subtract fee from total return
 
-    <div class="input-group">
-        <label>Dealer Upcard (Value):</label>
-        <input type="number" id="upcard" value="10" min="2" max="11">
-    </div>
+        // HIT EV calculation (approximate 1-card hit for sub-hands)
+        let hitEV = calculateHitEV(pTotal, dProbs, mult, target);
+        hitEV -= fee;
 
-    <button onclick="calculateEV()">Calculate EV</button>
+        // SURRENDER EV
+        const surrenderEV = -0.50 - fee; // Constant: Lose half bet + full fee
 
-    <div id="results" style="display:none;">
-        <h3>EV Analysis (Per $1.00 Wagered)</h3>
-        <p id="ev-stand"></p>
-        <p id="ev-hit"></p>
-        <p id="ev-double"></p>
-        <p id="ev-surrender"></p>
-        <hr>
-        <p id="recommendation"></p>
-    </div>
+        displayResults([
+            { name: 'Stand', ev: standEV },
+            { name: 'Hit', ev: hitEV },
+            { name: 'Surrender', ev: surrenderEV }
+        ]);
+    }
 
-    <script>
-        function calculateEV() {
-            const mult = parseFloat(document.getElementById('multiplier').value);
-            const target = parseInt(document.getElementById('target').value);
-            const pSum = parseInt(document.getElementById('p1').value) + parseInt(document.getElementById('p2').value);
-            const dealer = parseInt(document.getElementById('upcard').value);
-            const fee = 0.20; // 20% Bingo Activator Fee
+    function calculateStandEV(total, dProbs, mult, target) {
+        if (total > 21) return -1.0;
+        
+        let ev = 0;
+        const isBingo = (total === target);
+        const winPay = isBingo ? mult : 1.0; // Payout is multiplied if total matches target
 
-            // Simplified Probability Model for 8-deck shoe
-            const dealerProb = { bust: 0.24, 17: 0.13, 18: 0.13, 19: 0.13, 20: 0.18, 21: 0.19 };
-            
-            // 1. STAND EV
-            let standEV = 0;
-            if (pSum > 21) standEV = -1.0;
-            else {
-                // Win if dealer busts or player > dealer
-                let winProb = dealerProb.bust;
-                for (let v = 17; v < pSum; v++) winProb += dealerProb[v] || 0;
-                
-                let pushProb = dealerProb[pSum] || 0;
-                let lossProb = 1 - winProb - pushProb;
-
-                // Apply Bingo Multiplier if pSum matches target
-                const winPay = (pSum === target) ? mult : 1.0;
-                standEV = (winProb * winPay) + (pushProb * 0) - (lossProb * 1.0);
-            }
-            standEV -= fee; // Account for Bingo fee
-
-            // 2. HIT EV (Simplified to 1-card hit)
-            const hitEV = (standEV * 0.95); // Approximation for standard hit risk
-
-            // 3. DOUBLE EV
-            const doubleEV = (standEV * 1.8); // 2x bet, reduced by 1-card restriction
-
-            // 4. SURRENDER EV
-            const surrenderEV = -0.50 - fee; // Lose half bet + full fee
-
-            // UI Display
-            document.getElementById('results').style.display = 'block';
-            document.getElementById('ev-stand').innerText = "Stand EV: " + standEV.toFixed(4);
-            document.getElementById('ev-hit').innerText = "Hit EV: ~" + hitEV.toFixed(4);
-            document.getElementById('ev-double').innerText = "Double EV: ~" + doubleEV.toFixed(4);
-            document.getElementById('ev-surrender').innerText = "Surrender EV: " + surrenderEV.toFixed(4);
-
-            const evs = { "Stand": standEV, "Hit": hitEV, "Double": doubleEV, "Surrender": surrenderEV };
-            const best = Object.keys(evs).reduce((a, b) => evs[a] > evs[b] ? a : b);
-            document.getElementById('recommendation').innerHTML = `Optimal Action: <span class="optimal">${best}</span>`;
+        // Win if dealer busts
+        ev += dProbs.bust * winPay;
+        
+        // Compare values
+        for (let dv = 17; dv <= 21; dv++) {
+            if (total > dv) ev += dProbs[dv] * winPay;
+            else if (total < dv) ev += dProbs[dv] * -1.0;
+            // Pushes (total == dv) = 0 EV
         }
-    </script>
+        return ev;
+    }
+
+    function calculateHitEV(total, dProbs, mult, target) {
+        let ev = 0;
+        for (let card = 1; card <= 10; card++) {
+            let prob = (card === 10) ? 4/13 : 1/13;
+            let newTotal = total + (card === 1 ? 11 : card);
+            if (newTotal > 21 && card === 1) newTotal -= 10; // Ace logic
+            
+            if (newTotal > 21) ev += prob * -1.0;
+            else ev += prob * calculateStandEV(newTotal, dProbs, mult, target);
+        }
+        return ev;
+    }
+
+    function getDealerProbs(upcard) {
+        // Standard S17 Probs (Approx)
+        const table = {
+            2: { bust: .35, 17: .13, 18: .13, 19: .12, 20: .12, 21: .12 },
+            10: { bust: .23, 17: .11, 18: .11, 19: .11, 20: .35, 21: .09 },
+            11: { bust: .11, 17: .12, 18: .13, 19: .13, 20: .13, 21: .36 }
+        };
+        return table[upcard] || table[10];
+    }
+
+    function displayResults(actions) {
+        const div = document.getElementById('results');
+        div.innerHTML = '<h3>EV per $1.00 Wagered</h3>';
+        
+        actions.sort((a,b) => b.ev - a.ev);
+        actions.forEach((a, i) => {
+            const css = (i === 0) ? 'ev-item optimal' : 'ev-item';
+            div.innerHTML += `<div class="${css}">
+                <span>${a.name} ${i === 0 ? '(Optimal)' : ''}</span>
+                <span class="val">${a.ev.toFixed(4)}</span>
+            </div>`;
+        });
+    }
+</script>
 </body>
 </html>
