@@ -2,138 +2,154 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bingo BJ Numerical EV Engine</title>
+    <title>Bingo Blackjack Recursive EV Engine</title>
     <style>
-        body { font-family: sans-serif; max-width: 700px; margin: 20px auto; background: #1a1a1a; color: white; padding: 20px; }
-        .container { background: #2d2d2d; padding: 25px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .input-row { display: flex; gap: 10px; margin-bottom: 15px; }
-        .input-group { flex: 1; }
-        label { display: block; font-size: 0.8em; color: #aaa; margin-bottom: 5px; }
-        select, input { width: 100%; padding: 10px; border-radius: 5px; border: none; background: #444; color: white; }
-        button { width: 100%; padding: 15px; background: #70ad47; border: none; border-radius: 5px; color: white; font-weight: bold; cursor: pointer; margin-top: 10px; }
-        #results { margin-top: 25px; border-top: 1px solid #444; padding-top: 20px; }
-        .ev-item { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #3d3d3d; }
-        .optimal { background: rgba(112, 173, 71, 0.2); border-left: 4px solid #70ad47; }
-        .val { font-family: monospace; font-size: 1.1em; }
-        .info { font-size: 0.8em; color: #888; margin-top: 10px; }
+        body { font-family: sans-serif; background: #121212; color: #e0e0e0; max-width: 600px; margin: auto; padding: 20px; }
+        .card { background: #1e1e1e; padding: 20px; border-radius: 12px; border: 1px solid #333; }
+        .input-group { margin-bottom: 15px; }
+        label { display: block; font-size: 0.8em; color: #888; margin-bottom: 5px; }
+        input, select { width: 100%; padding: 10px; background: #2d2d2d; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 15px; background: #70ad47; border: none; color: white; font-weight: bold; cursor: pointer; border-radius: 4px; margin-top: 10px; }
+        .results { margin-top: 20px; padding-top: 20px; border-top: 1px solid #333; }
+        .ev-row { display: flex; justify-content: space-between; padding: 8px; border-radius: 4px; }
+        .optimal { background: rgba(112, 173, 71, 0.2); border-left: 4px solid #70ad47; font-weight: bold; }
+        .val { font-family: monospace; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>Bingo Blackjack EV Engine</h2>
-        <p class="info">Rules: 8 Decks, S17, 20% Bingo Fee, Target Multiplier</p>
 
-        <div class="input-row">
-            <div class="input-group">
-                <label>Multiplier</label>
-                <select id="mult">
-                    <option value="2">2x</option><option value="5">5x</option><option value="10" selected>10x</option>
-                    <option value="25">25x</option><option value="50">50x</option><option value="100">100x</option>
-                </select>
-            </div>
-            <div class="input-group">
-                <label>Target Hand Value</label>
-                <input type="number" id="target" value="16" min="12" max="21">
-            </div>
+<div class="card">
+    <h2>Bingo BJ Recursive Engine</h2>
+    
+    <div class="input-group">
+        <label>Bingo Multiplier & Target</label>
+        <div style="display: flex; gap: 10px;">
+            <select id="mult">
+                <option value="2">2x</option><option value="5">5x</option><option value="10">10x</option>
+                <option value="25">25x</option><option value="50">50x</option><option value="100">100x</option>
+            </select>
+            <input type="number" id="target" value="21" placeholder="Target">
         </div>
-
-        <div class="input-row">
-            <div class="input-group"><label>Player Card 1</label><input type="number" id="c1" value="10"></div>
-            <div class="input-group"><label>Player Card 2</label><input type="number" id="c2" value="6"></div>
-            <div class="input-group"><label>Dealer Upcard</label><input type="number" id="dealer" value="10"></div>
-        </div>
-
-        <button onclick="runEV()">Calculate Numerical EV</button>
-
-        <div id="results"></div>
     </div>
 
+    <div class="input-group">
+        <label>Current Player Cards (comma separated, e.g. 10,6)</label>
+        <input type="text" id="playerCards" value="10,6">
+    </div>
+
+    <div class="input-group">
+        <label>Dealer Upcard</label>
+        <select id="dealer">
+            <option value="2">2</option><option value="3">3</option><option value="4">4</option>
+            <option value="5">5</option><option value="6">6</option><option value="7">7</option>
+            <option value="8">8</option><option value="9">9</option><option value="10">10/Face</option>
+            <option value="11">Ace</option>
+        </select>
+    </div>
+
+    <button onclick="calculate()">Calculate Optimal Action</button>
+
+    <div id="results" class="results" style="display:none;"></div>
+</div>
+
 <script>
-    const deck = [4,4,4,4,4,4,4,4,16,4]; // Approximate 8-deck weights (2-9, 10s, Aces)
+// Wizard of Odds 8-Deck S17 Probabilities
+const dealerProbs = {
+    "2":  {"bust": 0.353, "17": 0.139, "18": 0.134, "19": 0.130, "20": 0.122, "21": 0.122},
+    "3":  {"bust": 0.374, "17": 0.135, "18": 0.131, "19": 0.125, "20": 0.122, "21": 0.114},
+    "4":  {"bust": 0.403, "17": 0.131, "18": 0.120, "19": 0.120, "20": 0.116, "21": 0.110},
+    "5":  {"bust": 0.429, "17": 0.122, "18": 0.122, "19": 0.117, "20": 0.109, "21": 0.101},
+    "6":  {"bust": 0.439, "17": 0.165, "18": 0.106, "19": 0.106, "20": 0.101, "21": 0.083},
+    "7":  {"bust": 0.262, "17": 0.369, "18": 0.138, "19": 0.079, "20": 0.079, "21": 0.073},
+    "8":  {"bust": 0.245, "17": 0.129, "18": 0.359, "19": 0.129, "20": 0.069, "21": 0.069},
+    "9":  {"bust": 0.233, "17": 0.120, "18": 0.102, "19": 0.355, "20": 0.120, "21": 0.061},
+    "10": {"bust": 0.214, "17": 0.113, "18": 0.102, "19": 0.102, "20": 0.354, "21": 0.115},
+    "11": {"bust": 0.155, "17": 0.131, "18": 0.131, "19": 0.131, "20": 0.131, "21": 0.321}
+};
+
+function getSoftTotal(cards) {
+    let total = cards.reduce((a, b) => a + b, 0);
+    let aceCount = cards.filter(c => c === 11).length;
+    while (total > 21 && aceCount > 0) {
+        total -= 10;
+        aceCount--;
+    }
+    return total;
+}
+
+function getStandEV(total, upcard, mult, target) {
+    if (total > 21) return -1.0;
+    const d = dealerProbs[upcard];
+    const winPay = (total === target) ? mult : 1.0;
+    let ev = d.bust * winPay;
+    for (let i = 17; i <= 21; i++) {
+        if (total > i) ev += d[i] * winPay;
+        else if (total < i) ev += d[i] * -1.0;
+    }
+    return ev;
+}
+
+// Recursive Hit Function: Returns max(Stand EV, Hit EV)
+function getBestActionEV(cards, upcard, mult, target) {
+    const total = getSoftTotal(cards);
+    if (total >= 21) return getStandEV(total, upcard, mult, target);
+
+    const standEV = getStandEV(total, upcard, mult, target);
     
-    function runEV() {
-        const mult = parseFloat(document.getElementById('mult').value);
-        const target = parseInt(document.getElementById('target').value);
-        const pTotal = parseInt(document.getElementById('c1').value) + parseInt(document.getElementById('c2').value);
-        const dUp = parseInt(document.getElementById('dealer').value);
-        const fee = 0.20; // 20% Bingo Activator Fee
-
-        // Dealer outcome probabilities based on upcard (Simplified S17 8-Deck model)
-        const dProbs = getDealerProbs(dUp);
-
-        // STAND EV calculation
-        let standEV = calculateStandEV(pTotal, dProbs, mult, target);
-        standEV -= fee; // Subtract fee from total return
-
-        // HIT EV calculation (approximate 1-card hit for sub-hands)
-        let hitEV = calculateHitEV(pTotal, dProbs, mult, target);
-        hitEV -= fee;
-
-        // SURRENDER EV
-        const surrenderEV = -0.50 - fee; // Constant: Lose half bet + full fee
-
-        displayResults([
-            { name: 'Stand', ev: standEV },
-            { name: 'Hit', ev: hitEV },
-            { name: 'Surrender', ev: surrenderEV }
-        ]);
-    }
-
-    function calculateStandEV(total, dProbs, mult, target) {
-        if (total > 21) return -1.0;
+    let hitEV = 0;
+    for (let card = 2; card <= 11; card++) {
+        const weight = (card === 10) ? 4/13 : 1/13;
+        const nextCards = [...cards, card];
+        const nextTotal = getSoftTotal(nextCards);
         
-        let ev = 0;
-        const isBingo = (total === target);
-        const winPay = isBingo ? mult : 1.0; // Payout is multiplied if total matches target
-
-        // Win if dealer busts
-        ev += dProbs.bust * winPay;
-        
-        // Compare values
-        for (let dv = 17; dv <= 21; dv++) {
-            if (total > dv) ev += dProbs[dv] * winPay;
-            else if (total < dv) ev += dProbs[dv] * -1.0;
-            // Pushes (total == dv) = 0 EV
+        if (nextTotal > 21) {
+            hitEV += weight * -1.0;
+        } else {
+            // Recurse: What's the best move after drawing this card?
+            hitEV += weight * getBestActionEV(nextCards, upcard, mult, target);
         }
-        return ev;
     }
+    return Math.max(standEV, hitEV);
+}
 
-    function calculateHitEV(total, dProbs, mult, target) {
-        let ev = 0;
-        for (let card = 1; card <= 10; card++) {
-            let prob = (card === 10) ? 4/13 : 1/13;
-            let newTotal = total + (card === 1 ? 11 : card);
-            if (newTotal > 21 && card === 1) newTotal -= 10; // Ace logic
-            
-            if (newTotal > 21) ev += prob * -1.0;
-            else ev += prob * calculateStandEV(newTotal, dProbs, mult, target);
-        }
-        return ev;
-    }
+function calculate() {
+    const mult = parseFloat(document.getElementById('mult').value);
+    const target = parseInt(document.getElementById('target').value);
+    const cards = document.getElementById('playerCards').value.split(',').map(Number);
+    const upcard = document.getElementById('dealer').value;
+    const fee = 0.20;
 
-    function getDealerProbs(upcard) {
-        // Standard S17 Probs (Approx)
-        const table = {
-            2: { bust: .35, 17: .13, 18: .13, 19: .12, 20: .12, 21: .12 },
-            10: { bust: .23, 17: .11, 18: .11, 19: .11, 20: .35, 21: .09 },
-            11: { bust: .11, 17: .12, 18: .13, 19: .13, 20: .13, 21: .36 }
-        };
-        return table[upcard] || table[10];
+    const currentTotal = getSoftTotal(cards);
+    const standEV = getStandEV(currentTotal, upcard, mult, target) - fee;
+    
+    // Calculate Hit EV by looking at the expected outcome of drawing one card 
+    // and then playing optimally from there.
+    let hitEV = 0;
+    for (let card = 2; card <= 11; card++) {
+        const weight = (card === 10) ? 4/13 : 1/13;
+        hitEV += weight * getBestActionEV([...cards, card], upcard, mult, target);
     }
+    hitEV -= fee;
 
-    function displayResults(actions) {
-        const div = document.getElementById('results');
-        div.innerHTML = '<h3>EV per $1.00 Wagered</h3>';
-        
-        actions.sort((a,b) => b.ev - a.ev);
-        actions.forEach((a, i) => {
-            const css = (i === 0) ? 'ev-item optimal' : 'ev-item';
-            div.innerHTML += `<div class="${css}">
-                <span>${a.name} ${i === 0 ? '(Optimal)' : ''}</span>
-                <span class="val">${a.ev.toFixed(4)}</span>
-            </div>`;
-        });
-    }
+    const surrenderEV = -0.50 - fee;
+
+    // Display
+    const res = document.getElementById('results');
+    res.style.display = 'block';
+    const evs = [
+        { name: "Stand", val: standEV },
+        { name: "Hit", val: hitEV },
+        { name: "Surrender", val: surrenderEV }
+    ];
+    evs.sort((a,b) => b.val - a.val);
+
+    res.innerHTML = evs.map((e, i) => `
+        <div class="ev-row ${i === 0 ? 'optimal' : ''}">
+            <span>${e.name}</span>
+            <span class="val">${e.val.toFixed(4)}</span>
+        </div>
+    `).join('');
+}
 </script>
 </body>
 </html>
