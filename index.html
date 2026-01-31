@@ -2,39 +2,50 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Bingo Blackjack Recursive EV Engine</title>
+    <title>Bingo BJ Advanced EV Engine</title>
     <style>
-        body { font-family: sans-serif; background: #121212; color: #e0e0e0; max-width: 600px; margin: auto; padding: 20px; }
-        .card { background: #1e1e1e; padding: 20px; border-radius: 12px; border: 1px solid #333; }
-        .input-group { margin-bottom: 15px; }
-        label { display: block; font-size: 0.8em; color: #888; margin-bottom: 5px; }
-        input, select { width: 100%; padding: 10px; background: #2d2d2d; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
-        button { width: 100%; padding: 15px; background: #70ad47; border: none; color: white; font-weight: bold; cursor: pointer; border-radius: 4px; margin-top: 10px; }
-        .results { margin-top: 20px; padding-top: 20px; border-top: 1px solid #333; }
-        .ev-row { display: flex; justify-content: space-between; padding: 8px; border-radius: 4px; }
-        .optimal { background: rgba(112, 173, 71, 0.2); border-left: 4px solid #70ad47; font-weight: bold; }
-        .val { font-family: monospace; }
+        body { font-family: -apple-system, sans-serif; background: #121212; color: #eee; max-width: 600px; margin: 20px auto; padding: 20px; }
+        .card { background: #1e1e1e; padding: 25px; border-radius: 12px; border: 1px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        h2 { color: #70ad47; text-align: center; margin-top: 0; }
+        .input-group { margin-bottom: 20px; }
+        label { display: block; font-size: 0.85em; color: #888; margin-bottom: 8px; }
+        input, select { width: 100%; padding: 12px; background: #2d2d2d; border: 1px solid #444; color: white; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
+        button { width: 100%; padding: 16px; background: #70ad47; border: none; color: white; font-weight: bold; cursor: pointer; border-radius: 6px; font-size: 1.1em; transition: 0.2s; }
+        button:hover { background: #5d913a; }
+        .error { color: #ff5555; background: rgba(255,85,85,0.1); padding: 10px; border-radius: 6px; margin-bottom: 15px; display: none; border: 1px solid #ff5555; }
+        .results { margin-top: 25px; border-top: 1px solid #333; padding-top: 20px; }
+        .ev-row { display: flex; justify-content: space-between; padding: 12px; border-radius: 6px; margin-bottom: 5px; }
+        .optimal { background: rgba(112, 173, 71, 0.2); border-left: 5px solid #70ad47; font-weight: bold; }
+        .val { font-family: 'Courier New', monospace; font-size: 1.1em; }
+        .hint { font-size: 0.75em; color: #666; margin-top: 8px; }
     </style>
 </head>
 <body>
 
 <div class="card">
-    <h2>Bingo BJ Recursive Engine</h2>
+    <h2>Bingo BJ Advanced Engine</h2>
     
+    <div id="errorBox" class="error"></div>
+
     <div class="input-group">
-        <label>Bingo Multiplier & Target</label>
+        <label>Bingo Multiplier & Target Value</label>
         <div style="display: flex; gap: 10px;">
-            <select id="mult">
-                <option value="2">2x</option><option value="5">5x</option><option value="10">10x</option>
-                <option value="25">25x</option><option value="50">50x</option><option value="100">100x</option>
+            <select id="mult" style="flex: 2;">
+                <option value="2">2x Multiplier</option>
+                <option value="5">5x Multiplier</option>
+                <option value="10" selected>10x Multiplier</option>
+                <option value="25">25x Multiplier</option>
+                <option value="50">50x Multiplier</option>
+                <option value="100">100x Multiplier</option>
             </select>
-            <input type="number" id="target" value="21" placeholder="Target">
+            <input type="number" id="target" value="21" style="flex: 1;" min="12" max="21">
         </div>
     </div>
 
     <div class="input-group">
-        <label>Current Player Cards (comma separated, e.g. 10,6)</label>
-        <input type="text" id="playerCards" value="10,6">
+        <label>Player Cards (List separated by commas)</label>
+        <input type="text" id="playerCards" value="10, 6" placeholder="e.g. 10, 2, 4">
+        <div class="hint">Use 11 for Ace. Current Total: <span id="liveTotal" style="color:#70ad47">16</span></div>
     </div>
 
     <div class="input-group">
@@ -42,18 +53,17 @@
         <select id="dealer">
             <option value="2">2</option><option value="3">3</option><option value="4">4</option>
             <option value="5">5</option><option value="6">6</option><option value="7">7</option>
-            <option value="8">8</option><option value="9">9</option><option value="10">10/Face</option>
+            <option value="8">8</option><option value="9">9</option><option value="10">10 / Face</option>
             <option value="11">Ace</option>
         </select>
     </div>
 
-    <button onclick="calculate()">Calculate Optimal Action</button>
+    <button onclick="calculate()">Analyze EV</button>
 
     <div id="results" class="results" style="display:none;"></div>
 </div>
 
 <script>
-// Wizard of Odds 8-Deck S17 Probabilities
 const dealerProbs = {
     "2":  {"bust": 0.353, "17": 0.139, "18": 0.134, "19": 0.130, "20": 0.122, "21": 0.122},
     "3":  {"bust": 0.374, "17": 0.135, "18": 0.131, "19": 0.125, "20": 0.122, "21": 0.114},
@@ -69,13 +79,16 @@ const dealerProbs = {
 
 function getSoftTotal(cards) {
     let total = cards.reduce((a, b) => a + b, 0);
-    let aceCount = cards.filter(c => c === 11).length;
-    while (total > 21 && aceCount > 0) {
-        total -= 10;
-        aceCount--;
-    }
+    let aces = cards.filter(c => c === 11).length;
+    while (total > 21 && aces > 0) { total -= 10; aces--; }
     return total;
 }
+
+// Live feedback for card input
+document.getElementById('playerCards').addEventListener('input', function(e) {
+    const cards = e.target.value.split(',').map(c => parseInt(c.trim())).filter(c => !isNaN(c));
+    document.getElementById('liveTotal').innerText = getSoftTotal(cards);
+});
 
 function getStandEV(total, upcard, mult, target) {
     if (total > 21) return -1.0;
@@ -89,8 +102,8 @@ function getStandEV(total, upcard, mult, target) {
     return ev;
 }
 
-// Recursive Hit Function: Returns max(Stand EV, Hit EV)
-function getBestActionEV(cards, upcard, mult, target) {
+// Recursive Optimal Strategy: Handles multiple hits
+function recursiveEV(cards, upcard, mult, target) {
     const total = getSoftTotal(cards);
     if (total >= 21) return getStandEV(total, upcard, mult, target);
 
@@ -98,55 +111,74 @@ function getBestActionEV(cards, upcard, mult, target) {
     
     let hitEV = 0;
     for (let card = 2; card <= 11; card++) {
-        const weight = (card === 10) ? 4/13 : 1/13;
-        const nextCards = [...cards, card];
-        const nextTotal = getSoftTotal(nextCards);
-        
-        if (nextTotal > 21) {
-            hitEV += weight * -1.0;
-        } else {
-            // Recurse: What's the best move after drawing this card?
-            hitEV += weight * getBestActionEV(nextCards, upcard, mult, target);
-        }
+        const prob = (card === 10) ? 4/13 : 1/13;
+        hitEV += prob * recursiveEV([...cards, card], upcard, mult, target);
     }
     return Math.max(standEV, hitEV);
 }
 
 function calculate() {
+    const err = document.getElementById('errorBox');
+    err.style.display = 'none';
+    
+    // Parse and Validate
+    const raw = document.getElementById('playerCards').value.split(',');
+    const cards = raw.map(c => parseInt(c.trim()));
+    const upcard = document.getElementById('dealer').value;
     const mult = parseFloat(document.getElementById('mult').value);
     const target = parseInt(document.getElementById('target').value);
-    const cards = document.getElementById('playerCards').value.split(',').map(Number);
-    const upcard = document.getElementById('dealer').value;
     const fee = 0.20;
 
+    if (cards.some(isNaN) || cards.some(c => c < 2 || c > 11)) {
+        err.innerText = "Error: Invalid card entered. Please use values 2-11 (11 for Ace).";
+        err.style.display = 'block';
+        return;
+    }
+
     const currentTotal = getSoftTotal(cards);
+    
+    // Action: STAND
     const standEV = getStandEV(currentTotal, upcard, mult, target) - fee;
     
-    // Calculate Hit EV by looking at the expected outcome of drawing one card 
-    // and then playing optimally from there.
+    // Action: HIT
     let hitEV = 0;
-    for (let card = 2; card <= 11; card++) {
-        const weight = (card === 10) ? 4/13 : 1/13;
-        hitEV += weight * getBestActionEV([...cards, card], upcard, mult, target);
+    for (let c = 2; c <= 11; c++) {
+        const prob = (c === 10) ? 4/13 : 1/13;
+        hitEV += prob * recursiveEV([...cards, c], upcard, mult, target);
     }
     hitEV -= fee;
 
+    // Action: DOUBLE (Only if 2 cards)
+    let doubleEV = -999;
+    if (cards.length === 2) {
+        doubleEV = 0;
+        for (let c = 2; c <= 11; c++) {
+            const prob = (c === 10) ? 4/13 : 1/13;
+            // Double only gets ONE card, so we use getStandEV
+            doubleEV += prob * (getStandEV(getSoftTotal([...cards, c]), upcard, mult, target) * 2);
+        }
+        doubleEV -= fee;
+    }
+
+    // Action: SURRENDER
     const surrenderEV = -0.50 - fee;
 
-    // Display
-    const res = document.getElementById('results');
-    res.style.display = 'block';
-    const evs = [
-        { name: "Stand", val: standEV },
-        { name: "Hit", val: hitEV },
-        { name: "Surrender", val: surrenderEV }
+    // Result Formatting
+    const results = [
+        { name: "Stand", ev: standEV },
+        { name: "Hit", ev: hitEV },
+        { name: "Surrender", ev: surrenderEV }
     ];
-    evs.sort((a,b) => b.val - a.val);
-
-    res.innerHTML = evs.map((e, i) => `
+    if (cards.length === 2) results.push({ name: "Double Down", ev: doubleEV });
+    
+    results.sort((a,b) => b.ev - a.ev);
+    
+    const resDiv = document.getElementById('results');
+    resDiv.style.display = 'block';
+    resDiv.innerHTML = results.map((r, i) => `
         <div class="ev-row ${i === 0 ? 'optimal' : ''}">
-            <span>${e.name}</span>
-            <span class="val">${e.val.toFixed(4)}</span>
+            <span>${r.name} ${i === 0 ? '(Optimal)' : ''}</span>
+            <span class="val">${r.ev.toFixed(4)}</span>
         </div>
     `).join('');
 }
